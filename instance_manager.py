@@ -5,7 +5,7 @@ import textwrap
 # Let's start with configuration
 
 REGION = 'ca-central-1'
-SECURITY_GROUP_NAME = 'sec-group-on-ec2'
+SECURITY_GROUP_NAME = 'sec-group-asg1'
 KEY='first-key-pair-for-first-vps'
 
 ec2 = boto3.resource('ec2', region_name=REGION)
@@ -87,6 +87,12 @@ def security_groups():
         IpProtocol='tcp',
         CidrIp='0.0.0.0/0'
     )
+    security_group.authorize_ingress(
+        FromPort=80,
+        ToPort=80,
+        IpProtocol='tcp',
+        CidrIp='0.0.0.0/0'
+    )
     print(f'Security group created!')
     return security_group.id
         
@@ -135,4 +141,4 @@ if __name__ == "__main__":
     micro_instances = launch_ec2('t3.micro', 'Cluster2', 3)
 
     print('All instances launched, wait some minutes for user data script to start fastAPI.')
-    print('You can test by accessing http://<public-ip>:8000 on each instance.')
+    print('You can test by accessing http://<public_ip>:8000 on each instance.')
