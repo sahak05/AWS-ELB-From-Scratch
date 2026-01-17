@@ -1,43 +1,54 @@
 import time
 import boto3
+import textwrap
 
 # Let's start with configuration
 
 REGION = 'ca-central-1'
-SECURITY_GROUP_NAME = 'firewall-on-ec2'
-KEY='USE_YOUR_OWN_KEY_XXX'
+SECURITY_GROUP_NAME = 'sec-group-on-ec2'
+KEY='first-key-pair-for-first-vps'
 
 ec2 = boto3.resource('ec2', region_name=REGION)
 ec2_client = boto3.client('ec2', region_name=REGION)
 
 
 # AUTOMATED SCRIPT
-ec2_user_data = '''
-#!/bin/bash
-sudo ym update -y
-sudo yum install python3 python3-pip -y
-pip3 install fastapi uvicorn
-cat <<EOF > /home/ec2-user/main.py
+ec2_user_data = USER_DATA_SCRIPT = textwrap.dedent("""#!/bin/bash
+# Enable logging so we can see what went wrong in /var/log/user-data.log
+exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+echo "Starting setup..."
+yum update -y
+yum install python3 python3-pip -y
+pip3 install fastapi uvicorn requests
+
+echo "Creating Python App..."
+# Note: The EOF block must be fully left-aligned in the final file
+cat <<'EOF' > /home/ec2-user/main.py
 from fastapi import FastAPI
 import socket
 
 app = FastAPI()
 
 @app.get("/")
-def read_root(): 
-    return {"message": "Instance is responding", "instance_id": socket.gethostname()}
+def read_root():
+    return {"message": "Instance is responding!", "instance_id": socket.gethostname()}
 
 @app.get("/cluster1")
-def cluster1():
-    return {"message": "Cluster 1 (Large) responding", "instance_id": socket.gethostname()}
+def read_cluster1():
+    return {"message": "Cluster 1 (Small) responding", "instance_id": socket.gethostname()}
 
 @app.get("/cluster2")
-def cluster2():
+def read_cluster2():
     return {"message": "Cluster 2 (Micro) responding", "instance_id": socket.gethostname()}
 EOF
 
-nohup uvicorn main:app --host 0.0.0.0 --port 8000 --app-dir /home/ec2-user &
-'''
+echo "Starting App..."
+# Run as ec2-user, not root
+chown ec2-user:ec2-user /home/ec2-user/main.py
+runuser -l ec2-user -c 'nohup uvicorn main:app --host 0.0.0.0 --port 8000 --app-dir /home/ec2-user &'
+echo "Setup Complete!"
+""")
 
 
 # Security group of our EC2 instances
@@ -81,7 +92,6 @@ def security_groups():
         
 def launch_ec2(flavor, tag, number_of_instances):
     '''Launch EC2 instances with the User data script'''
-
     # We can also use the run_instances with the Ec2 client
     instances = ec2.create_instances(
         ImageId='ami-085f043560da76e08',
@@ -119,9 +129,10 @@ def launch_ec2(flavor, tag, number_of_instances):
 if __name__ == "__main__":
     sg_id = security_groups()
 
-    # Launch 2 t3.small as I am using free tier AWS
+    # Launch 4 t3.small as I am using free tier AWS
 
     small_instances = launch_ec2('t3.small', 'Cluster1', 2)
     micro_instances = launch_ec2('t3.micro', 'Cluster2', 3)
 
     print('All instances launched, wait some minutes for user data script to start fastAPI.')
+    print('You can test by accessing http://<public-ip>:8000 on each instance.')
